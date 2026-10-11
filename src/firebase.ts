@@ -4,12 +4,12 @@ import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
-  apiKey: 'PASTE_YOUR_API_KEY',
-  authDomain: 'PASTE_YOUR_AUTH_DOMAIN',
-  projectId: 'PASTE_YOUR_PROJECT_ID',
-  storageBucket: 'PASTE_YOUR_STORAGE_BUCKET',
-  messagingSenderId: 'PASTE_YOUR_MESSAGING_SENDER_ID',
-  appId: 'PASTE_YOUR_APP_ID',
+  apiKey: 'AIzaSyDe3snCowaGEr8OvDP3DVfW9gvoFVvkPlk',
+  authDomain: 'deliverymarketplace-57851.firebaseapp.com',
+  projectId: 'deliverymarketplace-57851',
+  storageBucket: 'deliverymarketplace-57851.firebasestorage.app',
+  messagingSenderId: '643387902290',
+  appId: '1:643387902290:web:933ee548b7693823ef928b',
 }
 
 const app = initializeApp(firebaseConfig)
