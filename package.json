@@ -4,12 +4,10 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  
-"scripts": {
-  "dev": "vite",
-  "build": "vite build"
-}
-
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
     "firebase": "^12.4.0",
     "lucide-react": "^0.546.0",
