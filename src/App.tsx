@@ -11,12 +11,18 @@ import {
   doc,
   getDoc,
   onSnapshot,
+  updateDoc,
 } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
 import { auth, db } from './firebase'
 
 type Row = Record<string, unknown> & { id: string }
-type Tab = 'orders' | 'merchants' | 'riders'
+type Tab =
+  | 'orders'
+  | 'merchants'
+  | 'riders'
+  | 'locations'
+  | 'pricing'
 
 function text(value: unknown) {
   if (value === null || value === undefined || value === '') return '—'
@@ -46,7 +52,33 @@ function App() {
   const [merchants, setMerchants] = useState<Row[]>([])
   const [riders, setRiders] = useState<Row[]>([])
   const [dataError, setDataError] = useState('')
+  const [selectedMerchantId, setSelectedMerchantId] = useState('')
+const [latitude, setLatitude] = useState('')
+const [longitude, setLongitude] = useState('')
 
+const [baseFee, setBaseFee] = useState('40')
+const [includedDistanceKm, setIncludedDistanceKm] = useState('2')
+const [extraFeePerKm, setExtraFeePerKm] = useState('10')
+const [pricingEnabled, setPricingEnabled] = useState(true)
+
+const [savingSettings, setSavingSettings] = useState(false)
+const [settingsMessage, setSettingsMessage] = useState('')
+
+  useEffect(() => {
+  const merchant = merchants.find(
+    (item) => item.id === selectedMerchantId,
+  )
+
+  if (!merchant) return
+
+  setLatitude(
+    merchant.latitude == null ? '' : String(merchant.latitude),
+  )
+  setLongitude(
+    merchant.longitude == null ? '' : String(merchant.longitude),
+  )
+}, [selectedMerchantId, merchants])
+  
   useEffect(() => {
     return onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser)
@@ -133,13 +165,122 @@ function App() {
       (e) => setDataError((old) => old || `Riders: ${e.message}`),
     )
 
+    const unsubPricing = onSnapshot(
+  doc(db, 'settings', 'deliveryPricing'),
+  (snapshot) => {
+    if (!snapshot.exists()) {
+      setDataError('Delivery pricing settings document was not found.')
+      return
+    }
+
+    const data = snapshot.data()
+
+    setBaseFee(String(data.baseFee ?? 40))
+    setIncludedDistanceKm(
+      String(data.includedDistanceKm ?? 2),
+    )
+    setExtraFeePerKm(String(data.extraFeePerKm ?? 10))
+    setPricingEnabled(data.enabled === true)
+  },
+  (e) => setDataError(`Delivery pricing: ${e.message}`),
+)
+    
+
     return () => {
       unsubOrders()
       unsubMerchants()
       unsubRiders()
+      unsubPricing()
     }
   }, [user, authorized])
 
+  async function saveMerchantLocation(event: FormEvent) {
+  event.preventDefault()
+  setSettingsMessage('')
+  setDataError('')
+
+  const lat = Number(latitude)
+  const lng = Number(longitude)
+
+  if (
+    !selectedMerchantId ||
+    latitude.trim() === '' ||
+    longitude.trim() === '' ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    setSettingsMessage('Enter a valid merchant and GPS location.')
+    return
+  }
+
+  setSavingSettings(true)
+
+  try {
+    await updateDoc(doc(db, 'merchants', selectedMerchantId), {
+      latitude: lat,
+      longitude: lng,
+    })
+
+    setSettingsMessage('Merchant location saved successfully.')
+  } catch (e) {
+    setSettingsMessage(
+      e instanceof Error ? e.message : 'Could not save location.',
+    )
+  } finally {
+    setSavingSettings(false)
+  }
+}
+
+async function saveDeliveryPricing(event: FormEvent) {
+  event.preventDefault()
+  setSettingsMessage('')
+  setDataError('')
+
+  const base = Number(baseFee)
+  const included = Number(includedDistanceKm)
+  const extra = Number(extraFeePerKm)
+
+  if (
+    baseFee.trim() === '' ||
+    includedDistanceKm.trim() === '' ||
+    extraFeePerKm.trim() === '' ||
+    !Number.isFinite(base) ||
+    !Number.isFinite(included) ||
+    !Number.isFinite(extra) ||
+    base < 0 ||
+    included < 0 ||
+    extra < 0
+  ) {
+    setSettingsMessage('Enter valid, non-negative pricing values.')
+    return
+  }
+
+  setSavingSettings(true)
+
+  try {
+    await updateDoc(doc(db, 'settings', 'deliveryPricing'), {
+      baseFee: base,
+      includedDistanceKm: included,
+      extraFeePerKm: extra,
+      calculationMethod: 'straight_line',
+      currency: 'PHP',
+      enabled: pricingEnabled,
+    })
+
+    setSettingsMessage('Delivery pricing saved successfully.')
+  } catch (e) {
+    setSettingsMessage(
+      e instanceof Error ? e.message : 'Could not save pricing.',
+    )
+  } finally {
+    setSavingSettings(false)
+  }
+}
+  
   async function login(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
@@ -251,6 +392,19 @@ function App() {
           <TabButton active={tab === 'riders'} onClick={() => setTab('riders')}>
             Riders ({riders.length})
           </TabButton>
+          <TabButton
+  active={tab === 'locations'}
+  onClick={() => setTab('locations')}
+>
+  Merchant Locations
+</TabButton>
+
+<TabButton
+  active={tab === 'pricing'}
+  onClick={() => setTab('pricing')}
+>
+  Delivery Pricing
+</TabButton>
         </nav>
 
         {dataError && <p className="error">{dataError}</p>}
@@ -312,6 +466,130 @@ function App() {
             ))}
           </section>
         )}
+        {tab === 'locations' && (
+  <section className="panel">
+    <h2>Merchant Locations</h2>
+    <p className="muted">
+      Only administrators can set a merchant's official pickup location.
+    </p>
+
+    <form onSubmit={saveMerchantLocation}>
+      <label htmlFor="merchantLocation">Select merchant</label>
+      <select
+        id="merchantLocation"
+        value={selectedMerchantId}
+        onChange={(e) => setSelectedMerchantId(e.target.value)}
+        required
+      >
+        <option value="">Choose a merchant</option>
+        {merchants.map((merchant) => (
+          <option key={merchant.id} value={merchant.id}>
+            {text(merchant.name)} ({merchant.id})
+          </option>
+        ))}
+      </select>
+
+      <label htmlFor="merchantLatitude">Latitude</label>
+      <input
+        id="merchantLatitude"
+        type="number"
+        step="any"
+        value={latitude}
+        onChange={(e) => setLatitude(e.target.value)}
+        placeholder="Example: 9.7392"
+        required
+      />
+
+      <label htmlFor="merchantLongitude">Longitude</label>
+      <input
+        id="merchantLongitude"
+        type="number"
+        step="any"
+        value={longitude}
+        onChange={(e) => setLongitude(e.target.value)}
+        placeholder="Example: 118.7353"
+        required
+      />
+
+      <button
+        className="primary-button"
+        type="submit"
+        disabled={savingSettings}
+      >
+        {savingSettings ? 'Saving…' : 'Save Merchant Location'}
+      </button>
+    </form>
+  </section>
+)}
+        {tab === 'pricing' && (
+  <section className="panel">
+    <h2>Delivery Pricing</h2>
+    <p className="muted">
+      Configure the marketplace-wide delivery pricing policy.
+    </p>
+
+    <form onSubmit={saveDeliveryPricing}>
+      <label htmlFor="baseFee">Base delivery fee (₱)</label>
+      <input
+        id="baseFee"
+        type="number"
+        min="0"
+        step="0.01"
+        value={baseFee}
+        onChange={(e) => setBaseFee(e.target.value)}
+        required
+      />
+
+      <label htmlFor="includedDistance">
+        Distance included in base fee (km)
+      </label>
+      <input
+        id="includedDistance"
+        type="number"
+        min="0"
+        step="any"
+        value={includedDistanceKm}
+        onChange={(e) => setIncludedDistanceKm(e.target.value)}
+        required
+      />
+
+      <label htmlFor="extraFee">Additional fee per km (₱)</label>
+      <input
+        id="extraFee"
+        type="number"
+        min="0"
+        step="0.01"
+        value={extraFeePerKm}
+        onChange={(e) => setExtraFeePerKm(e.target.value)}
+        required
+      />
+
+      <label>
+        <input
+          type="checkbox"
+          checked={pricingEnabled}
+          onChange={(e) => setPricingEnabled(e.target.checked)}
+        />
+        Enable distance-based delivery pricing
+      </label>
+
+      <button
+        className="primary-button"
+        type="submit"
+        disabled={savingSettings}
+      >
+        {savingSettings ? 'Saving…' : 'Save Delivery Pricing'}
+      </button>
+    </form>
+
+    <p className="small muted">
+      Example: ₱40 base fee includes 2 km, then ₱10 for each
+      additional kilometer. The final calculation and rounding
+      policy will be implemented in the Customer app and trusted
+      backend.
+    </p>
+  </section>
+)}
       </main>
       <footer className="footer">Delivery Marketplace · Admin</footer>
     </div>
